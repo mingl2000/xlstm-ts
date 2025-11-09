@@ -11,7 +11,7 @@ import pandas as pd
 # Ensure deterministic CuBLAS when deterministic algorithms are enabled
 os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 import torch
-
+import argparse 
 # Ensure src/ is on the Python path
 CURRENT_DIR = os.getcwd()
 SRC_PATH = os.path.join(CURRENT_DIR, 'src')
@@ -37,11 +37,13 @@ STOCK = 'SS 000001'
 START_DATE = '2000-01-01'
 #END_DATE = '2025-11-07'
 FREQ = '1d'
-FILE_NAME = '000001SS_daily'
-FILE_NAME = '1211.hk_daily'
+#FILE_NAME = '000001SS_daily'
+#FILE_NAME = '1211.hk_daily'
 #FILE_NAME = '6030.hk_daily'
 #FILE_NAME = '2318.hk_daily'
-DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
+#FILE_NAME = '9888.hk_daily'
+
+#DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if DEVICE.type != 'cuda':
@@ -76,7 +78,7 @@ set_global_seed(SEED, False)
 # Data preparation helpers
 # -------------------------------------------------------------------------------------------
 
-def load_price_data():
+def load_price_data(DATA_PATH):
     """Load, filter, and index the historical price data."""
     print(f'Loading data from {DATA_PATH}')
     df = pd.read_csv(DATA_PATH, header=0, index_col=0, skiprows=[1, 2])
@@ -187,8 +189,8 @@ def predict_next_day_direction(
     return next_close, direction, direction_prob
 
 
-def main():
-    df = load_price_data()
+def main(FILE_NAME,DATA_PATH):
+    df = load_price_data(DATA_PATH)
     df = apply_wavelet_denoising(df)
 
     train_x, train_y, val_x, val_y, close_scaled, scaler = prepare_training_tensors(df)
@@ -218,4 +220,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    argparse=argparse.ArgumentParser()
+    argparse.add_argument('--file',type=str,default='000001SS_daily',help='file name')
+    args=argparse.parse_args()
+    FILE_NAME=args.file
+    DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
+    main(FILE_NAME,DATA_PATH)
