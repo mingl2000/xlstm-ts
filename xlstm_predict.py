@@ -38,6 +38,9 @@ START_DATE = '2000-01-01'
 #END_DATE = '2025-11-07'
 FREQ = '1d'
 FILE_NAME = '000001SS_daily'
+FILE_NAME = '1211.hk_daily'
+#FILE_NAME = '6030.hk_daily'
+#FILE_NAME = '2318.hk_daily'
 DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -47,25 +50,27 @@ if DEVICE.type != 'cuda':
 # Global seed for reproducibility
 SEED = 42
 
-def set_global_seed(seed: int = SEED):
+def set_global_seed(seed: int = SEED, deterministic: bool = True):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    
     # Deterministic behavior where possible
     # xLSTM uses CUDA ops like cumsum that lack deterministic kernels.
     # Prefer warn-only to keep runs comparable without hard failures.
-    try:
-        torch.use_deterministic_algorithms(True, warn_only=True)
-    except TypeError:
-        # Older PyTorch without warn_only: fall back to best-effort determinism
-        pass
-    if hasattr(torch.backends, 'cudnn'):
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+    if deterministic:
+        try:
+            torch.use_deterministic_algorithms(True, warn_only=True)
+        except TypeError:
+            # Older PyTorch without warn_only: fall back to best-effort determinism
+            pass
+        if hasattr(torch.backends, 'cudnn'):
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
-set_global_seed(SEED)
+set_global_seed(SEED, False)   
 
 # -------------------------------------------------------------------------------------------
 # Data preparation helpers
@@ -206,7 +211,7 @@ def main():
     )
 
     next_session = df.index[-1] + datetime.timedelta(days=1)
-    print('-------------------------------------------------------')
+    print(f'-----------------------{FILE_NAME}--------------------------------')
     print(f'Latest available close ({df.index[-1].date()}): {last_close:.2f}')
     print(f'Predicted close for {next_session.date()}: {predicted_close:.2f}')
     print(f'Expected direction for next session: {direction} ({direction_prob:.2%} confidence)')
