@@ -1,8 +1,7 @@
 # Utility script for training a denoised xLSTM-TS model on all available data
-# and producing a next-day directional forecast.
+# and producing a next-day directional forecast (without probability output).
 
 import datetime
-import math
 import os
 import sys
 import random
@@ -35,7 +34,6 @@ from ml.models.xlstm_ts.xlstm_ts_model import create_xlstm_model
 TICKER = '^GSPC'
 STOCK = 'SS 000001'
 START_DATE = '2000-01-01'
-#END_DATE = '2025-11-07'
 FREQ = '1d'
 FILE_NAME = '000001SS_daily'
 DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
@@ -78,8 +76,6 @@ def load_price_data():
     df.index = df.index.to_series().apply(lambda x: datetime.datetime.strptime(x.split(' ')[0], '%Y-%m-%d'))
 
     start_dt = datetime.datetime.strptime(START_DATE, '%Y-%m-%d')
-    #end_dt = datetime.datetime.strptime(END_DATE, '%Y-%m-%d')
-    #df = df[(df.index >= start_dt) & (df.index <= end_dt)]
     df = df[df.index >= start_dt]
     df = process_dates(df)
 
@@ -112,40 +108,8 @@ def prepare_training_tensors(df):
     return train_x, train_y, val_x, val_y, close_scaled, scaler
 
 
-def compute_recent_volatility(df, window=SEQ_LENGTH_XLSTM):
-    """Approximate recent daily-return volatility for probability estimates."""
-    returns = df['Close'].pct_change().dropna()
-    if returns.empty:
-        return 0.0
-
-    window = min(window, len(returns))
-    rolling_std = returns.rolling(window=window).std().iloc[-1]
-    if math.isnan(rolling_std) or rolling_std <= 0:
-        return float(returns.std() or 0.0)
-    return float(rolling_std)
-
-
-def direction_probability(change_pct, volatility):
-    """
-    Map the predicted percentage change to a probability using a Gaussian model.
-
-    Assumes returns follow N(mu, sigma) with mu=change_pct and sigma equal to the
-    recent volatility estimate. The probability of an upward move is Phi(mu/sigma).
-    """
-    if not math.isfinite(change_pct):
-        return 0.5
-
-    if not math.isfinite(volatility) or volatility <= 0:
-        # Fall back to a symmetric 50/50 probability when volatility is undefined.
-        return 0.5
-
-    z = change_pct / (volatility + 1e-12)
-    prob_up = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
-    return min(max(prob_up, 0.0), 1.0)
-
-
 # -------------------------------------------------------------------------------------------
-# Prediction logic
+# Prediction logic (without probability)
 # -------------------------------------------------------------------------------------------
 
 def predict_next_day_direction(
@@ -155,7 +119,6 @@ def predict_next_day_direction(
     close_scaled,
     scaler,
     last_close,
-    volatility,
 ):
     """
     Predict the next close value and map it to a direction relative to the latest close.
@@ -171,15 +134,7 @@ def predict_next_day_direction(
     next_close = inverse_normalise_data_xlstm(next_close_scaled.squeeze(), scaler).item()
     direction = 'Up' if next_close > last_close else 'Down'
 
-    if last_close == 0:
-        change_pct = 0.0
-    else:
-        change_pct = (next_close - last_close) / last_close
-
-    prob_up = direction_probability(change_pct, volatility)
-    direction_prob = prob_up if direction == 'Up' else 1.0 - prob_up
-
-    return next_close, direction, direction_prob
+    return next_close, direction
 
 
 def main():
@@ -187,7 +142,6 @@ def main():
     df = apply_wavelet_denoising(df)
 
     train_x, train_y, val_x, val_y, close_scaled, scaler = prepare_training_tensors(df)
-    volatility = compute_recent_volatility(df)
 
     xlstm_stack, input_projection, output_projection = create_xlstm_model(SEQ_LENGTH_XLSTM)
     xlstm_stack, input_projection, output_projection = train_model(
@@ -195,21 +149,20 @@ def main():
     )
 
     last_close = df['Close'].iloc[-1]
-    predicted_close, direction, direction_prob = predict_next_day_direction(
+    predicted_close, direction = predict_next_day_direction(
         xlstm_stack,
         input_projection,
         output_projection,
         close_scaled,
         scaler,
         last_close,
-        volatility,
     )
 
     next_session = df.index[-1] + datetime.timedelta(days=1)
     print('-------------------------------------------------------')
     print(f'Latest available close ({df.index[-1].date()}): {last_close:.2f}')
     print(f'Predicted close for {next_session.date()}: {predicted_close:.2f}')
-    print(f'Expected direction for next session: {direction} ({direction_prob:.2%} confidence)')
+    print(f'Expected direction for next session: {direction}')
 
 
 if __name__ == '__main__':
