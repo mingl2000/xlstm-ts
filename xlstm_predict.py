@@ -8,6 +8,7 @@ import sys
 import random
 import numpy as np
 import pandas as pd
+import yfinance as yf
 # Ensure deterministic CuBLAS when deterministic algorithms are enabled
 os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 import torch
@@ -95,7 +96,28 @@ def load_price_data(DATA_PATH):
 
     return df
 
+def download_data(ticker, DATA_PATH):
+    """Load, filter, and index the historical price data."""
+    print(f'Loading data from {DATA_PATH}')
+    df= yf.download(ticker)
+    df.to_csv(DATA_PATH, index=True, date_format='%Y-%m-%d %H:%M:%S')
+    return
+    #df.columns = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+    #df.columns =df.droplevel(0,axis=1)
+    #return df
+    #df = pd.read_csv(DATA_PATH, header=0, index_col=0, skiprows=[1, 2])
+    #df.index = df.index.to_series().apply(lambda x: datetime.datetime.strptime(x.split(' ')[0], '%Y-%m-%d'))
 
+    start_dt = datetime.datetime.strptime(START_DATE, '%Y-%m-%d')
+    #end_dt = datetime.datetime.strptime(END_DATE, '%Y-%m-%d')
+    #df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+    df = df[df.index >= start_dt]
+    df = process_dates(df)
+
+    if df.empty:
+        raise ValueError('No data left after applying the requested date range.')
+
+    return df
 def apply_wavelet_denoising(df):
     """Add denoised close values to the dataframe."""
     df['Close_denoised'] = wavelet_denoising(df['Close'])
@@ -189,7 +211,11 @@ def predict_next_day_direction(
     return next_close, direction, direction_prob
 
 
-def main(FILE_NAME,DATA_PATH):
+def main(TICKER):
+    FILE_NAME=f"{args.ticker}_daily"
+    DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
+
+    df = download_data(ticker, DATA_PATH)
     df = load_price_data(DATA_PATH)
     df = apply_wavelet_denoising(df)
 
@@ -221,8 +247,8 @@ def main(FILE_NAME,DATA_PATH):
 
 if __name__ == '__main__':
     argparse=argparse.ArgumentParser()
-    argparse.add_argument('--file',type=str,default='000001SS_daily',help='file name')
+    argparse.add_argument('--ticker',type=str,default='000001.SS',help='ticker')
     args=argparse.parse_args()
-    FILE_NAME=args.file
-    DATA_PATH = os.path.join('data', 'datasets', f'{FILE_NAME}.csv')
-    main(FILE_NAME,DATA_PATH)
+    ticker=args.ticker
+    print('ticker=',ticker)
+    main(args.ticker)
